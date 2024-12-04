@@ -1,0 +1,242 @@
+---
+title: "DS 6306 Project 2"
+author: "Logan Bell"
+date: "2024-11-23"
+output: html_document
+---
+
+```{r}
+library(mvtnorm)
+library(e1071)
+library(tidyr)
+library(plyr)
+library(jsonlite)
+library(dplyr)
+library(tidyverse)
+library(caret)
+library(fastDummies)
+library(caret)
+library(class)
+library(plotly)
+library(reshape2)
+library(shiny)
+```
+
+```{r}
+#Data cleaning - need to fix a typo and make the categorical data into factors
+winedata <- read.csv("C:/Users/logan/Downloads/Wine Train Set.csv")
+winedata$type <- factor(winedata$type, levels = c("red", "white"))
+winedata$type <- tolower(winedata$type)
+winedata$location <- gsub("Califormia", "California", winedata$location)
+winedata$location <- factor(winedata$location, levels = c("California", "Texas"))
+```
+
+```{r}
+char_columns <- names(winedata)[sapply(winedata, is.character)]
+fixeddata <- dummy_cols(winedata, select_columns = char_columns, remove_first_dummy = TRUE, remove_selected_columns = TRUE)
+corr_mat <- round(cor(fixeddata),4)
+print(corr_mat)
+#Seems that the volatile acidity, chlorides, density, alcohol, and location columns all have some sort of impact on the quality of wine
+```
+```{r}
+#Box plot of Volatile Acidity for EDA presentation
+ggplot(winedata, aes(x = factor(quality), y = volatile.acidity)) +
+  geom_boxplot(fill = "lightblue", color = "black") +
+  labs(title = "Volatile Acidity vs Quality", x = "Quality", y = "Volatile Acidity") +
+  theme_classic()
+```
+```{r}
+#Box plot of Fixed Acidity for EDA presentation
+ggplot(winedata, aes(x = factor(quality), y = fixed.acidity)) +
+  geom_boxplot(fill = "lightblue", color = "black") +
+  labs(title = "Fixed Acidity vs Quality", x = "Quality", y = "Fixed Acidity") +
+  theme_classic()
+```
+```{r}
+#Bar chart of Location for EDA presentation
+ggplot(winedata, aes(x = factor(quality), fill = location)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Quality Distribution Across Locations", x = "Quality", y = "Count") +
+  theme_classic()
+```
+```{r}
+#Box plot of Alcohol for EDA presentation
+ggplot(winedata, aes(x = factor(quality), y = alcohol)) +
+  geom_boxplot(fill = "pink", color = "black") +
+  labs(title = "Alcohol vs Quality", x = "Quality", y = "Alcohol") +
+  theme_classic()
+```
+```{r}
+#Box plot of Density for EDA presentation
+ggplot(winedata, aes(x = factor(quality), y = density)) +
+  geom_boxplot(fill = "yellow", color = "black") +
+  labs(title = "Density vs Quality", x = "Quality", y = "Density") +
+  theme_classic()
+```
+```{r}
+#Bar chart of Type for EDA presentation
+ggplot(winedata, aes(x = factor(quality), fill = type)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Quality Distribution Across Wine Types", x = "Quality", y = "Count") +
+  theme_classic()
+```
+```{r}
+#Box plot of Citric Acid for EDA presentation
+ggplot(winedata, aes(x = factor(quality), y = citric.acid)) +
+  geom_boxplot(fill = "lightcoral", color = "black") +
+  labs(title = "Citric Acid vs Quality", x = "Quality", y = "Citric Acid") +
+  theme_classic()
+```
+Instead of doing a bunch of trial and error to find the best linear model, I'm going to use the best subset variable selection method to determine my regression model.
+```{r}
+#Making a best subset selection to determine the variables used in the best possible model
+library(Sleuth2)
+library(glmnet)
+library(caret)
+library(leaps)
+library(bestglm)
+#Removing the ID column because it's not needed in any fashion
+subdata <- winedata[,-c(1)]
+#for some reason it did not recognize the type as a factor so I made it a factor again
+subdata$type <- factor(subdata$type, levels = c("red", "white"))
+res.bestglm <- bestglm(Xy = subdata, family = gaussian, IC = "AIC", method = "exhaustive")
+res.bestglm$BestModels
+```
+
+```{r}
+#Building the model from what the best subset selection says
+wine.lm <- lm(quality ~ volatile.acidity + fixed.acidity + residual.sugar + free.sulfur.dioxide + total.sulfur.dioxide + density + pH + sulphates + alcohol + location + type, data = winedata)
+summary(wine.lm)
+#Finding the MAE
+predictions <- predict(wine.lm, newdata = winedata)
+actuals <- winedata$quality
+mae <- mean(abs(actuals - predictions))
+print(mae)
+#MAE is 0.5022064, which I think is pretty small (I hope)
+```
+Reasoning behind these meaningful variables:
+Fixed + Volatile Acidity: Fixed acidity is a metric of stable acids while volatile acidity is a metric of those which evaporate easily. A balance of the two is best, while too much volatile acidity can detract from quality.
+Residual Sugar: Residual sugar can make a wine sweeter and balance acidity. It also indicates how fermented the wine is. Too much residual sugar can indicate an issue in fermentation.
+Free and Total Sulfur Dioxide: Free sulfur dioxide protects against spoilage while total sulfur dioxide includes bound and free forms of sulfur dioxide. Excessive levels of either can lead to poor taste while too little can lead to spoilage.
+Sulphates: Too many sulphates can lead to bitterness and a decrease in quality.
+Alcohol: A higher alcohol content has shown to have a positive and negative impact on the quality, which makes sense because it can make a drink feel more fulfilling but too much can overpower if the rest of the drink isn't up to par.
+Density: Since alcohol is less dense than water, having an increase in alcohol content is going to increase the density, so they are related. The density can also be a consequence of the sugar content.
+pH: A balanced pH level can maintain flavor while a pH level that is too high or low can lead to a lower quality due to altering the flavor.
+Location: Some locations are going to have better climate and soil for wine production, and the best locations are going to have higher expectations.
+Type: The type of wine can have differing qualities because of their differing flavors and chemical compositions. 
+
+
+
+```{r}
+#Finding the minimums and maximums for all of the numeric values
+numdata <- winedata[sapply(winedata, is.numeric)]
+numsummary <- data.frame(
+  Min = sapply(numdata, min, na.rm = TRUE),
+  Max = sapply(numdata, max, na.rm = TRUE)
+)
+print(numsummary)
+```
+
+
+```{r}
+ui <- fluidPage(
+  titlePanel("Wine Quality Predictor"),
+  sidebarLayout(
+    #I want all of the numeric values to be within the bounds of the training data so there is no extrapolation within the ShinyAPP
+    #Slider inputs were used for ease of use, ad the steps were in the smallest magnitude of the data
+    #Categorical inputs are select inputs for more ease of use
+    sidebarPanel(
+      sliderInput("volatile_acidity", "Volatile Acidity:", 
+                  min = 0.08, max = 1.58, value = 0.5, step = 0.01),
+      sliderInput("fixed_acidity", "Fixed Acidity:", 
+                  min = 3.8, max = 15.9, value = 7, step = 0.1),
+      sliderInput("residual_sugar", "Residual Sugar:", 
+                  min = 0.6, max = 31.6, value = 10, step = 0.1),
+      sliderInput("free_sulfur_dioxide", "Free Sulfur Dioxide:", 
+                  min = 1, max = 289, value = 50, step = 1),
+      sliderInput("total_sulfur_dioxide", "Total Sulfur Dioxide:", 
+                  min = 6, max = 440, value = 120, step = 1),
+      sliderInput("density", "Density:", 
+                  min = 0.98711, max = 1.0103, value = 0.995, step = 0.0001),
+      sliderInput("pH", "pH:", 
+                  min = 2.72, max = 4.01, value = 3.3, step = 0.01),
+      sliderInput("sulphates", "Sulphates:", 
+                  min = 0.22, max = 2.0, value = 0.6, step = 0.01),
+      sliderInput("alcohol", "Alcohol (%):", 
+                  min = 8.0, max = 14.9, value = 10.5, step = 0.1),
+      selectInput("location", "Location:", choices = unique(winedata$location)),
+      selectInput("type", "Type:", choices = c("red", "white"))
+    ),
+    mainPanel(
+      h3("Predicted Wine Quality"),
+      verbatimTextOutput("prediction"),
+      verbatimTextOutput("rounded_prediction")
+    )
+  )
+)
+
+server <- function(input, output) {
+  output$prediction <- renderPrint({
+    # Create a new data frame with user inputs
+    new_data <- data.frame(
+      volatile.acidity = input$volatile_acidity,
+      fixed.acidity = input$fixed_acidity,
+      residual.sugar = input$residual_sugar,
+      free.sulfur.dioxide = input$free_sulfur_dioxide,
+      total.sulfur.dioxide = input$total_sulfur_dioxide,
+      density = input$density,
+      pH = input$pH,
+      sulphates = input$sulphates,
+      alcohol = input$alcohol,
+      location = input$location,
+      type = factor(input$type, levels = c("red", "white"))
+    )
+    
+    #Implementing the multiple linear regression model
+    predicted_quality <- predict(wine.lm, new_data)
+    
+    #Since the actual ratings can go from 0 to 10, I wanted to set these bounds as well, even if the data only has qualities from 3 to 9
+    constrained_quality <- max(0, min(10, predicted_quality))
+    
+    paste("Raw Predicted Quality:", round(constrained_quality, 2))
+  })
+  
+  #Setting up the actual prediction
+  output$rounded_prediction <- renderPrint({
+    new_data <- data.frame(
+      volatile.acidity = input$volatile_acidity,
+      fixed.acidity = input$fixed_acidity,
+      residual.sugar = input$residual_sugar,
+      free.sulfur.dioxide = input$free_sulfur_dioxide,
+      total.sulfur.dioxide = input$total_sulfur_dioxide,
+      density = input$density,
+      pH = input$pH,
+      sulphates = input$sulphates,
+      alcohol = input$alcohol,
+      location = input$location,
+      type = factor(input$type, levels = c("red", "white"))
+    )
+    
+    #Predict quality using the regression model
+    predicted_quality <- predict(wine.lm, new_data)
+    
+    # Constrain predicted quality to the valid range (0 to 10)
+    constrained_quality <- max(0, min(10, predicted_quality))
+    
+    paste("Rounded Predicted Quality:", round(constrained_quality))
+  })
+}
+
+shinyApp(ui = ui, server = server)
+```
+Code to produce the predictions of the test set
+```{r}
+newdata <- read.csv("C:/Users/logan/Downloads/Wine Test Set.csv")
+newdata$location <- gsub("Califormia", "California", newdata$location)
+newdata
+testpredictions <- predict(wine.lm,newdata)
+roundpredictions <- round(testpredictions)
+output <- data.frame(ID = newdata$ID, PredictedQuality = testpredictions, RoundedQuality = roundpredictions)
+write.csv(output, "Case2PredictionsBell Quality.csv", row.names = FALSE)
+```
+
